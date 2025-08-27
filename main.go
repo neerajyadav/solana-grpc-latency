@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
 	"log"
@@ -14,8 +15,9 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/metadata"
 
 	pb "github.com/neerajyadav/proto"
 )
@@ -127,10 +129,38 @@ func main() {
 	defer func() {
 		latencyStats.PrintStats()
 	}()
+	// Endpoint info
+	endpoint := "basic.grpc.solanavibestation.com"
+	apikey := "xxxxxx"
 
-	endpoint := "grpc.solanavibestation.com:10000"
+	// create subscription request.
+	filters := map[string]any{
+		"transactions": map[string]any{
+			"client": map[string]any{
+				"vote":           false,
+				"failed":         false,
+				"accountInclude": []string{"6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P", "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA"},
+			},
+		},
+		"accounts": map[string]any{},
+		"blocks":   map[string]any{
+			// "client": map[string]any{
+			// 	"accountInclude":      []string{"6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P", "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA"},
+			// 	"includeAccounts":     true,
+			// 	"includeTransactions": true,
+			// },
+		},
+		"blocksMeta":         map[string]any{},
+		"entry":              map[string]any{},
+		"slots":              map[string]any{},
+		"transactionsStatus": map[string]any{},
+		"accountsDataSlice":  []any{},
+	}
+
+	request := CreateSubscribeRequest(pb.CommitmentLevel_CONFIRMED, filters)
+
 	opts := []grpc.DialOption{
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithTransportCredentials(credentials.NewTLS(&tls.Config{})),
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:                10 * time.Second,
 			Timeout:             5 * time.Second,
@@ -154,35 +184,15 @@ func main() {
 
 	client := pb.NewGeyserClient(conn)
 
-	stream, err := client.Subscribe(ctx)
+	md := metadata.New(map[string]string{})
+	md.Set("x-token", apikey)
+	ctxWithToken := metadata.NewOutgoingContext(ctx, md)
+
+	// Create the gRPC stream
+	stream, err := client.Subscribe(ctxWithToken)
 	if err != nil {
 		log.Fatal("Failed to create stream:", err)
 	}
-
-	filters := map[string]any{
-		"transactions": map[string]any{
-			// "client": map[string]any{
-			// 	"vote":           false,
-			// 	"failed":         false,
-			// 	"accountInclude": []string{"6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"},
-			// },
-		},
-		"accounts": map[string]any{},
-		"blocks": map[string]any{
-			"client": map[string]any{
-				"accountInclude":      []string{"6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P", "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA"},
-				"includeAccounts":     true,
-				"includeTransactions": true,
-			},
-		},
-		"blocksMeta":         map[string]any{},
-		"entry":              map[string]any{},
-		"slots":              map[string]any{},
-		"transactionsStatus": map[string]any{},
-		"accountsDataSlice":  []any{},
-	}
-
-	request := CreateSubscribeRequest(pb.CommitmentLevel_CONFIRMED, filters)
 
 	// Send the initial request
 	if err := stream.Send(request); err != nil {
